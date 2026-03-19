@@ -106,7 +106,7 @@ async function updateBookingStatus(bookingId, status, note = '') {
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: sheetId,
-    range: `${SHEET_NAME}!A:K`,
+    range: `${SHEET_NAME}!A:L`,
   });
 
   const rows = res.data.values || [];
@@ -130,7 +130,7 @@ async function getBookingsByDate(date) {
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SHEET_ID,
-    range: `${SHEET_NAME}!A:K`,
+    range: `${SHEET_NAME}!A:L`,
   });
 
   const rows = res.data.values || [];
@@ -143,7 +143,7 @@ async function getBookingById(bookingId) {
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SHEET_ID,
-    range: `${SHEET_NAME}!A:K`,
+    range: `${SHEET_NAME}!A:L`,
   });
 
   const rows = res.data.values || [];
@@ -171,7 +171,7 @@ async function getPendingBookings() {
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SHEET_ID,
-    range: `${SHEET_NAME}!A:K`,
+    range: `${SHEET_NAME}!A:L`,
   });
 
   const rows = res.data.values || [];
@@ -183,6 +183,46 @@ async function getPendingBookings() {
       purpose: r[6], passengers: r[7], car: r[8] || '',
       status: r[9],
     }));
+}
+
+// Kiểm tra xe đã được đặt chưa vào ngày đó
+async function checkCarAvailability(carName, date) {
+  const sheets = await getSheets();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.SHEET_ID,
+    range: `${SHEET_NAME}!A:L`,
+  });
+  const rows = res.data.values || [];
+  // Xe bị trùng nếu cùng ngày, cùng tên xe, trạng thái Đã duyệt hoặc Chờ duyệt
+  const conflict = rows.slice(1).find(r =>
+    r[3] === date &&
+    r[8] && r[8].startsWith(carName) &&
+    (r[9] === 'Đã duyệt' || r[9] === 'Chờ duyệt')
+  );
+  return conflict ? false : true; // true = còn trống
+}
+
+// Cập nhật trạng thái xe trong sheet "Danh sách xe"
+async function updateCarStatus(carName, status) {
+  const sheets = await getSheets();
+  const sheetId = process.env.SHEET_ID;
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: sheetId,
+    range: `${CAR_SHEET}!A:D`,
+  });
+
+  const rows = res.data.values || [];
+  const rowIndex = rows.findIndex(r => r[0] === carName);
+  if (rowIndex === -1) return false;
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: sheetId,
+    range: `${CAR_SHEET}!D${rowIndex + 1}`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [[status]] },
+  });
+  return true;
 }
 
 // Cập nhật xe khi duyệt
@@ -214,6 +254,8 @@ module.exports = {
   addBooking,
   updateBookingStatus,
   updateBookingCar,
+  updateCarStatus,
+  checkCarAvailability,
   getCarList,
   getBookingsByDate,
   getBookingById,

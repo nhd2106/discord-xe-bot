@@ -64,6 +64,15 @@ client.on(Events.InteractionCreate, async interaction => {
     await interaction.deferUpdate();
 
     try {
+      // Kiểm tra xe đã được đặt chưa
+      const available = await sheets.checkCarAvailability(carName, date);
+      if (!available) {
+        return await interaction.editReply({
+          content: `⚠️ *${carName}* đã có đơn đặt vào ngày *${date}*. Vui lòng chọn xe khác hoặc liên hệ Hành chính.`,
+          components: [],
+        });
+      }
+
       const bookingId = await sheets.addBooking({
         userName: interaction.user.username,
         userId: interaction.user.id,
@@ -172,6 +181,10 @@ client.on(Events.InteractionCreate, async interaction => {
       if (action === 'approve') {
         await sheets.updateBookingStatus(bookingId, 'Đã duyệt', `Duyệt bởi ${interaction.user.username}`);
 
+        // Cập nhật trạng thái xe trong Danh sách xe
+        const carName = booking.car.split(' (')[0];
+        await sheets.updateCarStatus(carName, `Đã đặt - ${booking.date}`);
+
         const user = await client.users.fetch(booking.userId);
         await user.send(
           `✅ Đơn đăng ký xe **${bookingId}** của bạn đã được *duyệt*!\n` +
@@ -184,6 +197,10 @@ client.on(Events.InteractionCreate, async interaction => {
 
       } else if (action === 'reject') {
         await sheets.updateBookingStatus(bookingId, 'Từ chối', `Từ chối bởi ${interaction.user.username}`);
+
+        // Trả trạng thái xe về Sẵn sàng
+        const carName = booking.car.split(' (')[0];
+        await sheets.updateCarStatus(carName, 'Sẵn sàng');
 
         const user = await client.users.fetch(booking.userId);
         await user.send(
