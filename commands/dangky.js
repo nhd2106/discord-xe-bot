@@ -1,6 +1,5 @@
 const {
-  SlashCommandBuilder, EmbedBuilder, ActionRowBuilder,
-  ButtonBuilder, ButtonStyle, StringSelectMenuBuilder
+  SlashCommandBuilder, ActionRowBuilder, StringSelectMenuBuilder
 } = require('discord.js');
 const sheets = require('../sheets');
 
@@ -19,7 +18,7 @@ module.exports = {
     .addIntegerOption(opt =>
       opt.setName('so_nguoi').setDescription('Số người đi (kể cả tài xế)').setRequired(true).setMinValue(1).setMaxValue(10)),
 
-  async execute(interaction) {
+  async execute(interaction, pendingBookings) {
     const date = interaction.options.getString('ngay');
     const time = interaction.options.getString('gio');
     const destination = interaction.options.getString('diem_den');
@@ -29,22 +28,27 @@ module.exports = {
     await interaction.deferReply({ ephemeral: true });
 
     try {
-      // Lấy danh sách xe từ sheet
       const cars = await sheets.getCarList();
 
       if (cars.length === 0) {
         return await interaction.editReply({ content: '❌ Không có xe nào trong danh sách. Vui lòng liên hệ Hành chính.' });
       }
 
-      // Hiện dropdown chọn xe
+      // Lưu tạm vào memory, key = userId
+      const tempId = `${interaction.user.id}_${Date.now()}`;
+      pendingBookings.set(tempId, { date, time, destination, purpose, passengers, userId: interaction.user.id, userName: interaction.user.username });
+
+      // Xóa sau 5 phút nếu không chọn
+      setTimeout(() => pendingBookings.delete(tempId), 5 * 60 * 1000);
+
       const selectMenu = new StringSelectMenuBuilder()
-        .setCustomId(`select_car_${date}_${time}_${encodeURIComponent(destination)}_${encodeURIComponent(purpose)}_${passengers}`)
+        .setCustomId(`select_car_${tempId}`)
         .setPlaceholder('Chọn xe muốn đăng ký...')
         .addOptions(
           cars.map(car => ({
             label: car.name,
             description: car.plate || 'Không có biển số',
-            value: `${car.name}|${car.plate}`,
+            value: `${car.name}||${car.plate}`,
           }))
         );
 

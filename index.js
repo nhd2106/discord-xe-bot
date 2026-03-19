@@ -13,6 +13,9 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
 });
 
+// Lưu tạm thông tin đăng ký chờ chọn xe
+const pendingBookings = new Map();
+
 // Load commands
 client.commands = new Collection();
 const commandsPath = path.join(__dirname, 'commands');
@@ -30,7 +33,7 @@ client.on(Events.InteractionCreate, async interaction => {
     const command = client.commands.get(interaction.commandName);
     if (!command) return;
     try {
-      await command.execute(interaction);
+      await command.execute(interaction, pendingBookings);
     } catch (err) {
       console.error(err);
       const msg = { content: '❌ Có lỗi xảy ra khi thực hiện lệnh.', ephemeral: true };
@@ -45,15 +48,18 @@ client.on(Events.InteractionCreate, async interaction => {
 
   // Select menu — chọn xe khi đăng ký
   if (interaction.isStringSelectMenu() && interaction.customId.startsWith('select_car_')) {
-    const parts = interaction.customId.split('_');
-    // format: select_car_DATE_TIME_DEST_PURPOSE_PASSENGERS
-    const date = parts[2];
-    const time = parts[3];
-    const destination = decodeURIComponent(parts[4]);
-    const purpose = decodeURIComponent(parts[5]);
-    const passengers = parseInt(parts[6]);
-    const [carName, carPlate] = interaction.values[0].split('|');
+    const tempId = interaction.customId.replace('select_car_', '');
+    const booking = pendingBookings.get(tempId);
+
+    if (!booking) {
+      return await interaction.reply({ content: '❌ Phiên đăng ký đã hết hạn. Vui lòng dùng /dangky-xe lại.', ephemeral: true });
+    }
+
+    pendingBookings.delete(tempId);
+
+    const [carName, carPlate] = interaction.values[0].split('||');
     const carLabel = carPlate ? `${carName} (${carPlate})` : carName;
+    const { date, time, destination, purpose, passengers } = booking;
 
     await interaction.deferUpdate();
 
