@@ -28,10 +28,10 @@ module.exports = {
     await interaction.deferReply({ ephemeral: true });
 
     try {
-      const cars = await sheets.getCarList();
+      const cars = await sheets.getCarList(date);
 
       if (cars.length === 0) {
-        return await interaction.editReply({ content: '❌ Không có xe nào trong danh sách. Vui lòng liên hệ Hành chính.' });
+        return await interaction.editReply({ content: `❌ Tất cả xe đã được đặt vào ngày *${date}*. Vui lòng chọn ngày khác hoặc liên hệ Hành chính.` });
       }
 
       // Lưu tạm vào memory, key = userId

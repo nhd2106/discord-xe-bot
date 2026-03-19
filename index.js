@@ -100,7 +100,7 @@ client.on(Events.InteractionCreate, async interaction => {
           .setTimestamp();
 
         // Dropdown đổi xe khi duyệt
-        const cars = await sheets.getCarList();
+        const cars = await sheets.getCarList(date);
         const changeCarMenu = new StringSelectMenuBuilder()
           .setCustomId(`change_car_${bookingId}`)
           .setPlaceholder('Đổi xe (nếu cần)...')

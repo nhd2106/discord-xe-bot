@@ -45,18 +45,34 @@ async function initSheet() {
   }
 }
 
-// Lấy danh sách xe từ sheet
-async function getCarList() {
+// Lấy danh sách xe còn trống theo ngày
+async function getCarList(date = null) {
   const sheets = await getSheets();
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SHEET_ID,
-      range: `${CAR_SHEET}!A2:C100`,
+      range: `${CAR_SHEET}!A2:D100`,
     });
     const rows = res.data.values || [];
-    return rows
-      .filter(r => r[2] === 'Hoạt động' || !r[2])
+    let cars = rows
+      .filter(r => r[0] && (r[2] === 'Hoạt động' || !r[2]))
       .map(r => ({ name: r[0], plate: r[1] || '' }));
+
+    // Nếu có ngày, lọc bỏ xe đã được duyệt vào ngày đó
+    if (date) {
+      const bookingRes = await sheets.spreadsheets.values.get({
+        spreadsheetId: process.env.SHEET_ID,
+        range: `${SHEET_NAME}!A:L`,
+      });
+      const bookings = bookingRes.data.values || [];
+      const bookedCars = bookings.slice(1)
+        .filter(r => r[3] === date && r[9] === 'Đã duyệt')
+        .map(r => r[8] ? r[8].split(' (')[0] : '');
+
+      cars = cars.filter(c => !bookedCars.includes(c.name));
+    }
+
+    return cars;
   } catch (err) {
     console.error('❌ Lỗi lấy danh sách xe:', err.message);
     return [];
