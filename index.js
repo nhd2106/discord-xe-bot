@@ -178,10 +178,12 @@ client.on(Events.InteractionCreate, async interaction => {
         });
       }
 
+      // Defer ngay để tránh timeout
+      await interaction.deferUpdate();
+
       if (action === 'approve') {
         await sheets.updateBookingStatus(bookingId, 'Đã duyệt', `Duyệt bởi ${interaction.user.username}`);
 
-        // Cập nhật trạng thái xe trong Danh sách xe
         const carName = booking.car.split(' (')[0];
         await sheets.updateCarStatus(carName, `Đã đặt - ${booking.date}`);
 
@@ -193,12 +195,11 @@ client.on(Events.InteractionCreate, async interaction => {
           `_Nhớ nhận chìa khóa từ Hành chính trước khi đi nhé!_`
         );
 
-        await interaction.update({ content: `✅ Đã duyệt bởi <@${interaction.user.id}>`, components: [] });
+        await interaction.editReply({ content: `✅ Đã duyệt bởi <@${interaction.user.id}>`, components: [] });
 
       } else if (action === 'reject') {
         await sheets.updateBookingStatus(bookingId, 'Từ chối', `Từ chối bởi ${interaction.user.username}`);
 
-        // Trả trạng thái xe về Sẵn sàng
         const carName = booking.car.split(' (')[0];
         await sheets.updateCarStatus(carName, 'Sẵn sàng');
 
@@ -209,12 +210,16 @@ client.on(Events.InteractionCreate, async interaction => {
           `_Vui lòng liên hệ Hành chính để biết thêm chi tiết._`
         );
 
-        await interaction.update({ content: `❌ Đã từ chối bởi <@${interaction.user.id}>`, components: [] });
+        await interaction.editReply({ content: `❌ Đã từ chối bởi <@${interaction.user.id}>`, components: [] });
       }
 
     } catch (err) {
       console.error(err);
-      await interaction.reply({ content: '❌ Có lỗi xảy ra.', ephemeral: true });
+      try {
+        await interaction.editReply({ content: '❌ Có lỗi xảy ra.' });
+      } catch {
+        await interaction.reply({ content: '❌ Có lỗi xảy ra.', ephemeral: true });
+      }
     }
   }
 });
