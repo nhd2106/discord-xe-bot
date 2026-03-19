@@ -55,7 +55,7 @@ async function getCarList(date = null) {
     });
     const rows = res.data.values || [];
     let cars = rows
-      .filter(r => r[0] && (r[2] === 'Hoạt động' || !r[2]))
+      .filter(r => r[0] && (r[2] === 'oke' || !r[2]))
       .map(r => ({ name: r[0], plate: r[1] || '' }));
 
     // Nếu có ngày, lọc bỏ xe đã được duyệt vào ngày đó
