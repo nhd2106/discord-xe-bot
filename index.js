@@ -1,5 +1,9 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, Collection, Events } = require('discord.js');
+const {
+  Client, GatewayIntentBits, Collection, Events,
+  ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  StringSelectMenuBuilder, EmbedBuilder
+} = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const cron = require('node-cron');
@@ -19,13 +23,12 @@ for (const file of commandFiles) {
   client.commands.set(command.data.name, command);
 }
 
-// Xử lý slash commands
 client.on(Events.InteractionCreate, async interaction => {
+
   // Slash command
   if (interaction.isChatInputCommand()) {
     const command = client.commands.get(interaction.commandName);
     if (!command) return;
-
     try {
       await command.execute(interaction);
     } catch (err) {
@@ -40,11 +43,109 @@ client.on(Events.InteractionCreate, async interaction => {
     return;
   }
 
-  // Button interaction (duyệt / từ chối)
-  if (interaction.isButton()) {
-    const [action, bookingId] = interaction.customId.split('_');
+  // Select menu — chọn xe khi đăng ký
+  if (interaction.isStringSelectMenu() && interaction.customId.startsWith('select_car_')) {
+    const parts = interaction.customId.split('_');
+    // format: select_car_DATE_TIME_DEST_PURPOSE_PASSENGERS
+    const date = parts[2];
+    const time = parts[3];
+    const destination = decodeURIComponent(parts[4]);
+    const purpose = decodeURIComponent(parts[5]);
+    const passengers = parseInt(parts[6]);
+    const [carName, carPlate] = interaction.values[0].split('|');
+    const carLabel = carPlate ? `${carName} (${carPlate})` : carName;
 
-    // Kiểm tra quyền admin
+    await interaction.deferUpdate();
+
+    try {
+      const bookingId = await sheets.addBooking({
+        userName: interaction.user.username,
+        userId: interaction.user.id,
+        date, time, destination, purpose, passengers,
+        car: carLabel,
+      });
+
+      // Gửi thông báo vào channel hành chính
+      const bookingChannel = interaction.guild.channels.cache.get(process.env.BOOKING_CHANNEL_ID);
+      if (bookingChannel) {
+        const embed = new EmbedBuilder()
+          .setTitle('🚗 Đăng ký xe mới')
+          .setColor(0xF59E0B)
+          .addFields(
+            { name: '📋 Mã đơn', value: bookingId, inline: true },
+            { name: '👤 Người đăng ký', value: `<@${interaction.user.id}>`, inline: true },
+            { name: '🚙 Xe', value: carLabel, inline: true },
+            { name: '📅 Ngày đi', value: date, inline: true },
+            { name: '🕐 Giờ đi', value: time, inline: true },
+            { name: '👥 Số người', value: passengers.toString(), inline: true },
+            { name: '📍 Điểm đến', value: destination, inline: true },
+            { name: '🎯 Mục đích', value: purpose, inline: true },
+          )
+          .setFooter({ text: 'Hành chính vui lòng duyệt hoặc từ chối bên dưới' })
+          .setTimestamp();
+
+        // Dropdown đổi xe khi duyệt
+        const cars = await sheets.getCarList();
+        const changeCarMenu = new StringSelectMenuBuilder()
+          .setCustomId(`change_car_${bookingId}`)
+          .setPlaceholder('Đổi xe (nếu cần)...')
+          .addOptions(
+            cars.map(car => ({
+              label: car.name,
+              description: car.plate || 'Không có biển số',
+              value: `${car.name}|${car.plate}`,
+            }))
+          );
+
+        const btnRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`approve_${bookingId}`)
+            .setLabel('✅ Duyệt')
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId(`reject_${bookingId}`)
+            .setLabel('❌ Từ chối')
+            .setStyle(ButtonStyle.Danger),
+        );
+
+        const selectRow = new ActionRowBuilder().addComponents(changeCarMenu);
+
+        await bookingChannel.send({ embeds: [embed], components: [selectRow, btnRow] });
+      }
+
+      await interaction.editReply({
+        content: `✅ Đăng ký thành công!\n📋 Mã đơn: *${bookingId}*\n🚙 Xe: ${carLabel}\nHành chính sẽ xác nhận sớm nhất có thể.`,
+        components: [],
+      });
+
+    } catch (err) {
+      console.error(err);
+      await interaction.editReply({ content: '❌ Có lỗi xảy ra, vui lòng thử lại.', components: [] });
+    }
+    return;
+  }
+
+  // Select menu — hành chính đổi xe khi duyệt
+  if (interaction.isStringSelectMenu() && interaction.customId.startsWith('change_car_')) {
+    if (!interaction.member.roles.cache.has(process.env.ADMIN_ROLE_ID)) {
+      return await interaction.reply({ content: '❌ Chỉ Hành chính mới có quyền đổi xe.', ephemeral: true });
+    }
+
+    const bookingId = interaction.customId.replace('change_car_', '');
+    const [carName, carPlate] = interaction.values[0].split('|');
+    const carLabel = carPlate ? `${carName} (${carPlate})` : carName;
+
+    await sheets.updateBookingCar(bookingId, carLabel);
+    await interaction.reply({ content: `🚙 Đã đổi xe đơn **${bookingId}** sang: ${carLabel}`, ephemeral: true });
+    return;
+  }
+
+  // Button — duyệt / từ chối
+  if (interaction.isButton()) {
+    const parts = interaction.customId.split('_');
+    const action = parts[0];
+    const bookingId = parts.slice(1).join('_');
+
     if (!interaction.member.roles.cache.has(process.env.ADMIN_ROLE_ID)) {
       return await interaction.reply({ content: '❌ Chỉ Hành chính mới có quyền duyệt.', ephemeral: true });
     }
@@ -65,25 +166,19 @@ client.on(Events.InteractionCreate, async interaction => {
       if (action === 'approve') {
         await sheets.updateBookingStatus(bookingId, 'Đã duyệt', `Duyệt bởi ${interaction.user.username}`);
 
-        // Thông báo cho người đăng ký
         const user = await client.users.fetch(booking.userId);
         await user.send(
           `✅ Đơn đăng ký xe **${bookingId}** của bạn đã được *duyệt*!\n` +
-          `📅 Ngày: ${booking.date} | 🕐 Giờ: ${booking.time}\n` +
+          `🚙 Xe: ${booking.car}\n📅 Ngày: ${booking.date} | 🕐 Giờ: ${booking.time}\n` +
           `📍 Điểm đến: ${booking.destination}\n` +
           `_Nhớ nhận chìa khóa từ Hành chính trước khi đi nhé!_`
         );
 
-        // Cập nhật embed
-        await interaction.update({
-          content: `✅ Đã duyệt bởi <@${interaction.user.id}>`,
-          components: [],
-        });
+        await interaction.update({ content: `✅ Đã duyệt bởi <@${interaction.user.id}>`, components: [] });
 
       } else if (action === 'reject') {
         await sheets.updateBookingStatus(bookingId, 'Từ chối', `Từ chối bởi ${interaction.user.username}`);
 
-        // Thông báo cho người đăng ký
         const user = await client.users.fetch(booking.userId);
         await user.send(
           `❌ Đơn đăng ký xe **${bookingId}** của bạn đã bị *từ chối*.\n` +
@@ -91,10 +186,7 @@ client.on(Events.InteractionCreate, async interaction => {
           `_Vui lòng liên hệ Hành chính để biết thêm chi tiết._`
         );
 
-        await interaction.update({
-          content: `❌ Đã từ chối bởi <@${interaction.user.id}>`,
-          components: [],
-        });
+        await interaction.update({ content: `❌ Đã từ chối bởi <@${interaction.user.id}>`, components: [] });
       }
 
     } catch (err) {
@@ -108,7 +200,6 @@ client.on(Events.InteractionCreate, async interaction => {
 cron.schedule('0 7 * * *', async () => {
   const today = new Date().toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
   const bookings = await sheets.getBookingsByDate(today);
-
   if (bookings.length === 0) return;
 
   const guild = client.guilds.cache.get(process.env.GUILD_ID);
@@ -117,7 +208,7 @@ cron.schedule('0 7 * * *', async () => {
 
   let msg = `📅 *Lịch xe hôm nay (${today}):*\n\n`;
   bookings.forEach((b, i) => {
-    msg += `${i + 1}. **[${b[0]}]** ${b[4]} — <@${b[2]}> → ${b[5]} (${b[7]} người)\n`;
+    msg += `${i + 1}. **[${b[0]}]** ${b[4]} — <@${b[2]}> → ${b[5]} | 🚙 ${b[8]} | 👥 ${b[7]} người\n`;
   });
 
   await channel.send(msg);

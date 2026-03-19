@@ -1,9 +1,10 @@
 const { google } = require('googleapis');
 
 const SHEET_NAME = 'Lịch xe';
+const CAR_SHEET = 'Danh sách xe';
 const HEADERS = [
   'ID', 'Người đăng ký', 'Discord ID', 'Ngày', 'Giờ đi', 'Điểm đến',
-  'Mục đích', 'Số người', 'Trạng thái', 'Ghi chú', 'Thời gian tạo'
+  'Mục đích', 'Số người', 'Xe', 'Trạng thái', 'Ghi chú', 'Thời gian tạo'
 ];
 
 function getAuth() {
@@ -27,7 +28,7 @@ async function initSheet() {
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: sheetId,
-      range: `${SHEET_NAME}!A1:K1`,
+      range: `${SHEET_NAME}!A1:L1`,
     });
 
     if (!res.data.values || res.data.values.length === 0) {
@@ -41,6 +42,24 @@ async function initSheet() {
     }
   } catch (err) {
     console.error('❌ Lỗi khởi tạo sheet:', err.message);
+  }
+}
+
+// Lấy danh sách xe từ sheet
+async function getCarList() {
+  const sheets = await getSheets();
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.SHEET_ID,
+      range: `${CAR_SHEET}!A2:C100`,
+    });
+    const rows = res.data.values || [];
+    return rows
+      .filter(r => r[2] === 'Hoạt động' || !r[2])
+      .map(r => ({ name: r[0], plate: r[1] || '' }));
+  } catch (err) {
+    console.error('❌ Lỗi lấy danh sách xe:', err.message);
+    return [];
   }
 }
 
@@ -64,6 +83,7 @@ async function addBooking(data) {
     data.destination,
     data.purpose,
     data.passengers,
+    data.car || '',
     'Chờ duyệt',
     '',
     now,
@@ -93,7 +113,7 @@ async function updateBookingStatus(bookingId, status, note = '') {
   const rowIndex = rows.findIndex(r => r[0] === bookingId);
   if (rowIndex === -1) return false;
 
-  const updateRange = `${SHEET_NAME}!I${rowIndex + 1}:J${rowIndex + 1}`;
+  const updateRange = `${SHEET_NAME}!J${rowIndex + 1}:K${rowIndex + 1}`;
   await sheets.spreadsheets.values.update({
     spreadsheetId: sheetId,
     range: updateRange,
@@ -114,7 +134,7 @@ async function getBookingsByDate(date) {
   });
 
   const rows = res.data.values || [];
-  return rows.slice(1).filter(r => r[3] === date && r[8] === 'Đã duyệt');
+  return rows.slice(1).filter(r => r[3] === date && r[9] === 'Đã duyệt');
 }
 
 // Lấy đơn theo booking ID
@@ -139,8 +159,9 @@ async function getBookingById(bookingId) {
     destination: row[5],
     purpose: row[6],
     passengers: row[7],
-    status: row[8],
-    note: row[9],
+    car: row[8] || '',
+    status: row[9],
+    note: row[10],
   };
 }
 
@@ -155,18 +176,45 @@ async function getPendingBookings() {
 
   const rows = res.data.values || [];
   return rows.slice(1)
-    .filter(r => r[8] === 'Chờ duyệt')
+    .filter(r => r[9] === 'Chờ duyệt')
     .map(r => ({
       id: r[0], userName: r[1], userId: r[2],
       date: r[3], time: r[4], destination: r[5],
-      purpose: r[6], passengers: r[7], status: r[8],
+      purpose: r[6], passengers: r[7], car: r[8] || '',
+      status: r[9],
     }));
+}
+
+// Cập nhật xe khi duyệt
+async function updateBookingCar(bookingId, car) {
+  const sheets = await getSheets();
+  const sheetId = process.env.SHEET_ID;
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: sheetId,
+    range: `${SHEET_NAME}!A:L`,
+  });
+
+  const rows = res.data.values || [];
+  const rowIndex = rows.findIndex(r => r[0] === bookingId);
+  if (rowIndex === -1) return false;
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: sheetId,
+    range: `${SHEET_NAME}!I${rowIndex + 1}`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [[car]] },
+  });
+
+  return true;
 }
 
 module.exports = {
   initSheet,
   addBooking,
   updateBookingStatus,
+  updateBookingCar,
+  getCarList,
   getBookingsByDate,
   getBookingById,
   getPendingBookings,

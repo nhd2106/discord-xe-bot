@@ -1,4 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const {
+  SlashCommandBuilder, EmbedBuilder, ActionRowBuilder,
+  ButtonBuilder, ButtonStyle, StringSelectMenuBuilder
+} = require('discord.js');
 const sheets = require('../sheets');
 
 module.exports = {
@@ -26,50 +29,30 @@ module.exports = {
     await interaction.deferReply({ ephemeral: true });
 
     try {
-      const bookingId = await sheets.addBooking({
-        userName: interaction.user.username,
-        userId: interaction.user.id,
-        date,
-        time,
-        destination,
-        purpose,
-        passengers,
-      });
+      // Lấy danh sách xe từ sheet
+      const cars = await sheets.getCarList();
 
-      // Gửi thông báo vào channel hành chính
-      const bookingChannel = interaction.guild.channels.cache.get(process.env.BOOKING_CHANNEL_ID);
-      if (bookingChannel) {
-        const embed = new EmbedBuilder()
-          .setTitle('🚗 Đăng ký xe mới')
-          .setColor(0xF59E0B)
-          .addFields(
-            { name: '📋 Mã đơn', value: bookingId, inline: true },
-            { name: '👤 Người đăng ký', value: `<@${interaction.user.id}>`, inline: true },
-            { name: '📅 Ngày đi', value: date, inline: true },
-            { name: '🕐 Giờ đi', value: time, inline: true },
-            { name: '📍 Điểm đến', value: destination, inline: true },
-            { name: '👥 Số người', value: passengers.toString(), inline: true },
-            { name: '🎯 Mục đích', value: purpose },
-          )
-          .setFooter({ text: 'Hành chính vui lòng duyệt hoặc từ chối bên dưới' })
-          .setTimestamp();
-
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`approve_${bookingId}`)
-            .setLabel('✅ Duyệt')
-            .setStyle(ButtonStyle.Success),
-          new ButtonBuilder()
-            .setCustomId(`reject_${bookingId}`)
-            .setLabel('❌ Từ chối')
-            .setStyle(ButtonStyle.Danger),
-        );
-
-        await bookingChannel.send({ embeds: [embed], components: [row] });
+      if (cars.length === 0) {
+        return await interaction.editReply({ content: '❌ Không có xe nào trong danh sách. Vui lòng liên hệ Hành chính.' });
       }
 
+      // Hiện dropdown chọn xe
+      const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId(`select_car_${date}_${time}_${encodeURIComponent(destination)}_${encodeURIComponent(purpose)}_${passengers}`)
+        .setPlaceholder('Chọn xe muốn đăng ký...')
+        .addOptions(
+          cars.map(car => ({
+            label: car.name,
+            description: car.plate || 'Không có biển số',
+            value: `${car.name}|${car.plate}`,
+          }))
+        );
+
+      const row = new ActionRowBuilder().addComponents(selectMenu);
+
       await interaction.editReply({
-        content: `✅ Đã gửi đăng ký xe thành công!\n📋 Mã đơn: **${bookingId}**\nHành chính sẽ xác nhận sớm nhất có thể.`,
+        content: `📋 Thông tin đăng ký:\n📅 ${date} | 🕐 ${time} | 📍 ${destination} | 👥 ${passengers} người\n\n*Chọn xe bên dưới:*`,
+        components: [row],
       });
 
     } catch (err) {
