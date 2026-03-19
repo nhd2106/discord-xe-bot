@@ -1,0 +1,16 @@
+{
+  "name": "discord-xe-bot",
+  "version": "1.0.0",
+  "description": "Discord bot quản lý xe công ty",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "deploy": "node deploy-commands.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "googleapis": "^140.0.0",
+    "dotenv": "^16.4.5",
+    "node-cron": "^3.0.3"
+  }
+}
